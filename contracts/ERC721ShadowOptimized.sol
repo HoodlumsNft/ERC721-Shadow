@@ -10,6 +10,9 @@ import "./interfaces/IERC721Shadow.sol";
  * Use this implementation when gas costs are critical. Thoroughly audit before production use.
  */
 contract ERC721ShadowOptimized is IERC721Shadow {
+    /// @notice Standard ERC721 Transfer event for marketplace compatibility
+    event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
+
     string private _name;
     string private _symbol;
     string private _baseTokenURI;
@@ -83,6 +86,14 @@ contract ERC721ShadowOptimized is IERC721Shadow {
 
     function baseURI() external view returns (string memory) {
         return _baseTokenURI;
+    }
+
+    /**
+     * @notice Returns the contract-level metadata URI
+     * @dev Used by OpenSea and other marketplaces for collection info
+     */
+    function contractURI() external view returns (string memory) {
+        return string(abi.encodePacked(_baseTokenURI, "contract"));
     }
 
     function oracle() external view returns (address) {
@@ -214,6 +225,7 @@ contract ERC721ShadowOptimized is IERC721Shadow {
             _owners[tokenId] = newOwner;
             _balances[newOwner]++;
             
+            emit Transfer(previousOwner, newOwner, tokenId);
             emit OwnershipMirrored(tokenId, previousOwner, newOwner);
             
             unchecked {
@@ -249,6 +261,7 @@ contract ERC721ShadowOptimized is IERC721Shadow {
             _owners[tokenId] = newOwner;
             _balances[newOwner]++;
             
+            emit Transfer(previousOwner, newOwner, tokenId);
             emit OwnershipMirrored(tokenId, previousOwner, newOwner);
             
             unchecked {

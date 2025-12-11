@@ -10,6 +10,9 @@ import "./interfaces/IERC721Shadow.sol";
  * Only the authorized oracle can update ownership. No transfers or approvals are supported.
  */
 contract ERC721Shadow is IERC721Shadow {
+    /// @notice Standard ERC721 Transfer event for marketplace compatibility
+    event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
+
     string private _name;
     string private _symbol;
     string private _baseTokenURI;
@@ -87,6 +90,15 @@ contract ERC721Shadow is IERC721Shadow {
     }
 
     /**
+     * @notice Returns the contract-level metadata URI
+     * @dev Used by OpenSea and other marketplaces for collection info
+     * @return The contract metadata URI (baseURI + "contract")
+     */
+    function contractURI() external view returns (string memory) {
+        return string(abi.encodePacked(_baseTokenURI, "contract"));
+    }
+
+    /**
      * @inheritdoc IERC721Shadow
      */
     function oracle() external view returns (address) {
@@ -155,6 +167,7 @@ contract ERC721Shadow is IERC721Shadow {
         _owners[tokenId] = newOwner;
         _balances[newOwner]++;
         
+        emit Transfer(previousOwner, newOwner, tokenId);
         emit OwnershipMirrored(tokenId, previousOwner, newOwner);
     }
 
@@ -186,6 +199,7 @@ contract ERC721Shadow is IERC721Shadow {
             _owners[tokenId] = newOwner;
             _balances[newOwner]++;
             
+            emit Transfer(previousOwner, newOwner, tokenId);
             emit OwnershipMirrored(tokenId, previousOwner, newOwner);
         }
         
@@ -220,6 +234,7 @@ contract ERC721Shadow is IERC721Shadow {
             _owners[tokenId] = newOwner;
             _balances[newOwner]++;
             
+            emit Transfer(previousOwner, newOwner, tokenId);
             emit OwnershipMirrored(tokenId, previousOwner, newOwner);
         }
         
