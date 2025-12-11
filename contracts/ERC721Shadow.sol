@@ -53,6 +53,19 @@ contract ERC721Shadow is IERC721Shadow {
     }
 
     /**
+     * @notice Returns true if this contract implements the interface defined by `interfaceId`
+     * @dev Implements ERC165 for marketplace detection
+     * @param interfaceId The interface identifier to check
+     * @return True if the interface is supported
+     */
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return
+            interfaceId == 0x01ffc9a7 || // ERC165
+            interfaceId == 0x80ac58cd || // ERC721
+            interfaceId == 0x5b5e139f;   // ERC721Metadata
+    }
+
+    /**
      * @inheritdoc IERC721Shadow
      */
     function name() external view returns (string memory) {
