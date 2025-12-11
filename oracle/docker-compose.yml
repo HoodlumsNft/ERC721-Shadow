@@ -1,0 +1,37 @@
+services:
+  oracle:
+    build: .
+    container_name: shadow-oracle
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    volumes:
+      # Persist oracle state across restarts
+      - oracle-state:/app/state
+    command: ["node", "index.js"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "console.log('healthy')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # One-time sync service (run manually)
+  sync:
+    build: .
+    container_name: shadow-oracle-sync
+    profiles:
+      - sync
+    env_file:
+      - .env
+    command: ["node", "sync-existing.js"]
+
+volumes:
+  oracle-state:

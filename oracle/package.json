@@ -1,0 +1,18 @@
+{
+    "name": "shadow-oracle",
+    "version": "1.0.0",
+    "description": "Oracle service for mirroring NFT ownership from Monad to ApeChain",
+    "main": "index.js",
+    "type": "module",
+    "scripts": {
+        "start": "node index.js",
+        "sync": "node sync-existing.js",
+        "dev": "node --watch index.js"
+    },
+    "dependencies": {
+        "ethers": "^6.9.0",
+        "dotenv": "^16.3.1"
+    },
+    "author": "Diluk Angelo",
+    "license": "MIT"
+}

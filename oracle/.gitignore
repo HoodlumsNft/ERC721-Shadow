@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+
+# State
+.oracle-state.json
+
+# Logs
+*.log
+
+# OS files
+.DS_Store

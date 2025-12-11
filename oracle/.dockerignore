@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+
+# State (persisted in Docker volume)
+.oracle-state.json
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+
+# Docker
+.dockerignore
