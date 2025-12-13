@@ -253,8 +253,21 @@ class ShadowOracle {
     this.isProcessing = true;
     
     try {
-      // Get current block from Monad (for oracle contract)
+      // Get current block from Monad (for scanning progress)
       const currentBlock = await this.monadProvider.getBlockNumber();
+      
+      // Get last processed block from contract (for nonce/ordering)
+      const contractLastBlock = await this.oracleContract.lastProcessedBlock();
+      
+      // Determine the block number to use for this batch
+      // Must be strictly greater than contractLastBlock
+      // And at least currentBlock (to match reality as close as possible)
+      // If contract is ahead (due to sync-existing), we must skip ahead
+      let relayBlock = BigInt(currentBlock);
+      if (relayBlock <= contractLastBlock) {
+        relayBlock = contractLastBlock + 1n;
+        console.log(`   ⚠️ Adjusting block number for contract: ${currentBlock} -> ${relayBlock}`);
+      }
       
       // Convert pending updates to arrays
       const updates = Array.from(this.pendingUpdates.entries());
@@ -263,7 +276,8 @@ class ShadowOracle {
       
       console.log('');
       console.log(`📤 Relaying ${updates.length} ownership updates...`);
-      console.log(`   Block number: ${currentBlock}`);
+      console.log(`   Scanned up to Monad block: ${currentBlock}`);
+      console.log(`   Relaying as block: ${relayBlock}`);
       
       // Use packed method for gas efficiency
       const packedData = updates.map(([tokenId, owner]) => packOwnership(tokenId, owner));
@@ -271,7 +285,7 @@ class ShadowOracle {
       // Estimate gas
       const gasEstimate = await this.oracleContract.relayOwnershipPacked.estimateGas(
         packedData,
-        currentBlock
+        relayBlock
       );
       
       console.log(`   Estimated gas: ${gasEstimate.toString()}`);
@@ -279,7 +293,7 @@ class ShadowOracle {
       // Send transaction
       const tx = await this.oracleContract.relayOwnershipPacked(
         packedData,
-        currentBlock,
+        relayBlock,
         { gasLimit: gasEstimate * 120n / 100n } // 20% buffer
       );
       
