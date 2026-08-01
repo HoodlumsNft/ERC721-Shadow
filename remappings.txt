@@ -1,0 +1,6 @@
+forge-std/=lib/forge-std/src/
+@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
+@limitbreak/creator-token-standards/=lib/creator-token-standards/
+@limitbreak/permit-c/=lib/creator-token-standards/lib/PermitC/src/
+@opensea/tstorish/=lib/creator-token-standards/lib/tstorish/src/
+lib/creator-token-standards/:@openzeppelin/contracts/=lib/creator-token-standards/lib/openzeppelin-contracts/contracts/
