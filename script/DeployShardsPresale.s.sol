@@ -20,23 +20,18 @@ contract DeployShardsPresaleScript is Script {
     function run() external {
         address hoodlums = vm.envAddress("HOODLUMS_NFT");
         address owner = vm.envAddress("PRESALE_OWNER");
-        uint256 round1Price = vm.envOr("ROUND1_PRICE_PER_TOKEN_WEI", uint256(0.0017 ether));
-        uint256 round2Price = vm.envOr("ROUND2_PRICE_PER_TOKEN_WEI", uint256(0.002 ether));
+        uint256 holderPrice = vm.envOr("HOLDER_PRICE_PER_TOKEN_WEI", uint256(0.0017 ether));
+        uint256 publicPrice = vm.envOr("PUBLIC_PRICE_PER_TOKEN_WEI", uint256(0.002 ether));
         uint256 perWalletCap = vm.envOr("PER_WALLET_CAP_TOKENS", uint256(2_000_000 ether));
-
         uint256 saleStart = vm.envOr("SALE_START", block.timestamp + 1 days);
-        uint256 round1Hours = vm.envOr("ROUND1_HOURS", uint256(48));
-        uint256 round1End = saleStart + (round1Hours * 1 hours);
 
         vm.startBroadcast();
-        ShardsPresale presale = new ShardsPresale(hoodlums, owner, round1Price, round2Price, perWalletCap, saleStart, round1End);
+        ShardsPresale presale = new ShardsPresale(hoodlums, owner, holderPrice, publicPrice, perWalletCap, saleStart);
         vm.stopBroadcast();
 
         console.log("ShardsPresale deployed:", address(presale));
         console.log("saleStart:", saleStart);
-        console.log("round1End:", round1End);
-        console.log("round1Price (wei/token):", round1Price);
-        console.log("round2Price (wei/token):", round2Price);
-        console.log("No total raise cap, no fixed end date -- end the sale with pause() when ready.");
+        console.log("holderPrice (wei/token):", holderPrice);
+        console.log("publicPrice (wei/token):", publicPrice);
     }
 }

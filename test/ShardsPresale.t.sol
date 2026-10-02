@@ -25,13 +25,12 @@ contract ShardsPresaleTest is Test {
     address nonHolder = address(0xDEAD);
     address treasury = address(0x7EA5);
 
-    uint256 constant ROUND1_PRICE = 0.0017 ether; // wei of APE per 1e18 SHARDS, holders-only round
-    uint256 constant ROUND2_PRICE = 0.002 ether; // public round, priced higher
+    uint256 constant HOLDER_PRICE = 0.0017 ether; // wei of APE per 1e18 SHARDS
+    uint256 constant PUBLIC_PRICE = 0.002 ether;
     uint256 constant WALLET_CAP = 2_000_000 ether;
     uint256 saleStart;
-    uint256 round1End;
 
-    event Contributed(address indexed buyer, uint256 apePaid, uint256 tokensOwed, uint256 refunded, uint8 round);
+    event Contributed(address indexed buyer, uint256 apePaid, uint256 tokensOwed, uint256 refunded, bool isHolder);
     event Withdrawn(address indexed to, uint256 amount);
 
     function setUp() public {
@@ -40,13 +39,9 @@ contract ShardsPresaleTest is Test {
         hoodlums.mint(holder2);
 
         saleStart = block.timestamp + 1 days;
-        round1End = saleStart + 2 days;
 
-        presale = new ShardsPresale(address(hoodlums), owner, ROUND1_PRICE, ROUND2_PRICE, WALLET_CAP, saleStart, round1End);
+        presale = new ShardsPresale(address(hoodlums), owner, HOLDER_PRICE, PUBLIC_PRICE, WALLET_CAP, saleStart);
 
-        // WALLET_CAP worth of tokens costs up to 2,000,000 * ROUND2_PRICE = 4,000 ether at the
-        // higher round's price — deal generously so every test can afford to hit caps without a
-        // coincidental balance revert.
         vm.deal(holder, 100_000 ether);
         vm.deal(holder2, 100_000 ether);
         vm.deal(nonHolder, 100_000 ether);
@@ -56,31 +51,26 @@ contract ShardsPresaleTest is Test {
 
     function test_constructor_rejectsZeroHoodlums() public {
         vm.expectRevert(ShardsPresale.ZeroAddress.selector);
-        new ShardsPresale(address(0), owner, ROUND1_PRICE, ROUND2_PRICE, WALLET_CAP, saleStart, round1End);
+        new ShardsPresale(address(0), owner, HOLDER_PRICE, PUBLIC_PRICE, WALLET_CAP, saleStart);
     }
 
     function test_constructor_rejectsZeroPriceOrCap() public {
         vm.expectRevert(ShardsPresale.InvalidConfig.selector);
-        new ShardsPresale(address(hoodlums), owner, 0, ROUND2_PRICE, WALLET_CAP, saleStart, round1End);
+        new ShardsPresale(address(hoodlums), owner, 0, PUBLIC_PRICE, WALLET_CAP, saleStart);
 
         vm.expectRevert(ShardsPresale.InvalidConfig.selector);
-        new ShardsPresale(address(hoodlums), owner, ROUND1_PRICE, 0, WALLET_CAP, saleStart, round1End);
+        new ShardsPresale(address(hoodlums), owner, HOLDER_PRICE, 0, WALLET_CAP, saleStart);
 
         vm.expectRevert(ShardsPresale.InvalidConfig.selector);
-        new ShardsPresale(address(hoodlums), owner, ROUND1_PRICE, ROUND2_PRICE, 0, saleStart, round1End);
+        new ShardsPresale(address(hoodlums), owner, HOLDER_PRICE, PUBLIC_PRICE, 0, saleStart);
     }
 
-    function test_constructor_rejectsRound2PriceBelowRound1() public {
+    function test_constructor_rejectsPublicPriceBelowHolderPrice() public {
         vm.expectRevert(ShardsPresale.InvalidConfig.selector);
-        new ShardsPresale(address(hoodlums), owner, ROUND2_PRICE, ROUND1_PRICE, WALLET_CAP, saleStart, round1End);
+        new ShardsPresale(address(hoodlums), owner, PUBLIC_PRICE, HOLDER_PRICE, WALLET_CAP, saleStart);
     }
 
-    function test_constructor_rejectsBadTimeOrdering() public {
-        vm.expectRevert(ShardsPresale.InvalidConfig.selector);
-        new ShardsPresale(address(hoodlums), owner, ROUND1_PRICE, ROUND2_PRICE, WALLET_CAP, round1End, saleStart);
-    }
-
-    // ---- round gating ----
+    // ---- gating ----
 
     function test_contribute_revertsBeforeSaleStart() public {
         vm.prank(holder);
@@ -88,49 +78,18 @@ contract ShardsPresaleTest is Test {
         presale.contribute{value: 1 ether}();
     }
 
-    function test_round1_rejectsNonHolder() public {
+    function test_nonHolder_canBuyFromSaleStart_atPublicPrice() public {
         vm.warp(saleStart);
-        vm.prank(nonHolder);
-        vm.expectRevert(ShardsPresale.NotAHoodlumsHolder.selector);
-        presale.contribute{value: 1 ether}();
-    }
-
-    function test_round1_acceptsHolder() public {
-        vm.warp(saleStart);
-        vm.prank(holder);
-        presale.contribute{value: 1 ether}();
-        assertGt(presale.contributed(holder), 0);
-    }
-
-    function test_round2_acceptsNonHolder() public {
-        vm.warp(round1End);
         vm.prank(nonHolder);
         presale.contribute{value: 1 ether}();
         assertGt(presale.contributed(nonHolder), 0);
-    }
-
-    function test_round2_hasNoEnd_stillAcceptsContributionsFarInTheFuture() public {
-        vm.warp(round1End + 365 days);
-        vm.prank(nonHolder);
-        presale.contribute{value: 1 ether}();
-        assertGt(presale.contributed(nonHolder), 0);
-    }
-
-    function test_currentRound_reportsCorrectly() public {
-        assertEq(presale.currentRound(), 0);
-        vm.warp(saleStart);
-        assertEq(presale.currentRound(), 1);
-        vm.warp(round1End);
-        assertEq(presale.currentRound(), 2);
-        vm.warp(round1End + 365 days);
-        assertEq(presale.currentRound(), 2); // stays 2 forever, no auto-close
     }
 
     // ---- purchase math ----
 
-    function test_contribute_usesRound1PriceDuringRound1() public {
+    function test_contribute_usesHolderPriceForHolder() public {
         vm.warp(saleStart);
-        uint256 apeIn = 1.7 ether; // divides evenly at ROUND1_PRICE=0.0017 ether -> exactly 1,000 tokens
+        uint256 apeIn = 1.7 ether; // divides evenly at HOLDER_PRICE=0.0017 ether -> exactly 1,000 tokens
         vm.prank(holder);
         presale.contribute{value: apeIn}();
         assertEq(presale.contributed(holder), 1_000 ether);
@@ -138,9 +97,9 @@ contract ShardsPresaleTest is Test {
         assertEq(presale.totalRaised(), apeIn);
     }
 
-    function test_contribute_usesRound2PriceDuringRound2() public {
-        vm.warp(round1End);
-        uint256 apeIn = 2 ether; // divides evenly at ROUND2_PRICE=0.002 ether -> exactly 1,000 tokens
+    function test_contribute_usesPublicPriceForNonHolder() public {
+        vm.warp(saleStart);
+        uint256 apeIn = 2 ether; // divides evenly at PUBLIC_PRICE=0.002 ether -> exactly 1,000 tokens
         vm.prank(nonHolder);
         presale.contribute{value: apeIn}();
         assertEq(presale.contributed(nonHolder), 1_000 ether);
@@ -149,8 +108,7 @@ contract ShardsPresaleTest is Test {
 
     function test_contribute_refundsExcessBeyondWalletCap() public {
         vm.warp(saleStart);
-        // WALLET_CAP (2,000,000 tokens) costs 2,000,000 * ROUND1_PRICE / 1e18 = 3,400 ether
-        uint256 costForCap = (WALLET_CAP * ROUND1_PRICE) / 1e18;
+        uint256 costForCap = (WALLET_CAP * HOLDER_PRICE) / 1e18;
         uint256 sent = costForCap + 5 ether;
         uint256 balBefore = holder.balance;
 
@@ -158,12 +116,12 @@ contract ShardsPresaleTest is Test {
         presale.contribute{value: sent}();
 
         assertEq(presale.contributed(holder), WALLET_CAP);
-        assertEq(holder.balance, balBefore - costForCap); // the extra 5 ether came straight back
+        assertEq(holder.balance, balBefore - costForCap);
     }
 
     function test_contribute_secondCallToppedUpToWalletCapThenReverts() public {
         vm.warp(saleStart);
-        uint256 half = (WALLET_CAP / 2 * ROUND1_PRICE) / 1e18;
+        uint256 half = (WALLET_CAP / 2 * HOLDER_PRICE) / 1e18;
         vm.startPrank(holder);
         presale.contribute{value: half}();
         presale.contribute{value: half}();
@@ -175,12 +133,12 @@ contract ShardsPresaleTest is Test {
     }
 
     function test_contribute_noTotalRaiseCap_acceptsArbitrarilyLargeDemand() public {
-        vm.warp(round1End);
+        vm.warp(saleStart);
         address[] memory buyers = new address[](3);
         buyers[0] = address(0xA1);
         buyers[1] = address(0xA2);
         buyers[2] = address(0xA3);
-        uint256 costForCap = (WALLET_CAP * ROUND2_PRICE) / 1e18;
+        uint256 costForCap = (WALLET_CAP * PUBLIC_PRICE) / 1e18;
         for (uint256 i = 0; i < buyers.length; i++) {
             vm.deal(buyers[i], costForCap);
             vm.prank(buyers[i]);
@@ -197,18 +155,30 @@ contract ShardsPresaleTest is Test {
         presale.contribute{value: 0}();
     }
 
-    function test_contribute_emitsWithCorrectRoundAndPrice() public {
+    function test_contribute_emitsWithHolderFlagAndPrice() public {
         vm.warp(saleStart);
         vm.expectEmit(true, false, false, true, address(presale));
-        emit Contributed(holder, 1.7 ether, 1_000 ether, 0, 1);
+        emit Contributed(holder, 1.7 ether, 1_000 ether, 0, true);
         vm.prank(holder);
         presale.contribute{value: 1.7 ether}();
 
-        vm.warp(round1End);
         vm.expectEmit(true, false, false, true, address(presale));
-        emit Contributed(nonHolder, 2 ether, 1_000 ether, 0, 2);
+        emit Contributed(nonHolder, 2 ether, 1_000 ether, 0, false);
         vm.prank(nonHolder);
         presale.contribute{value: 2 ether}();
+    }
+
+    function test_contribute_priceFollowsCurrentHoldingsNotASnapshot() public {
+        // A wallet that acquires a Hoodlum between contributions immediately gets the holder price.
+        vm.warp(saleStart);
+        vm.prank(nonHolder);
+        presale.contribute{value: 2 ether}(); // public price -> 1,000 tokens
+
+        hoodlums.mint(nonHolder);
+        vm.prank(nonHolder);
+        presale.contribute{value: 1.7 ether}(); // now a holder -> holder price -> another 1,000 tokens
+
+        assertEq(presale.contributed(nonHolder), 2_000 ether);
     }
 
     // ---- withdraw ----
@@ -269,13 +239,8 @@ contract ShardsPresaleTest is Test {
 
     function test_previewTokensOut_matchesActualClamping() public {
         vm.warp(saleStart);
-        uint256 preview = presale.previewTokensOut(holder, 1 ether);
-        assertEq(preview, (1 ether * 1e18) / ROUND1_PRICE);
-
-        assertEq(presale.previewTokensOut(nonHolder, 1 ether), 0); // gated out of round 1
-
-        vm.warp(round1End);
-        assertEq(presale.previewTokensOut(nonHolder, 1 ether), (1 ether * 1e18) / ROUND2_PRICE);
+        assertEq(presale.previewTokensOut(holder, 1 ether), (1 ether * 1e18) / HOLDER_PRICE);
+        assertEq(presale.previewTokensOut(nonHolder, 1 ether), (1 ether * 1e18) / PUBLIC_PRICE);
     }
 
     function test_previewTokensOut_isZeroWhilePaused() public {
@@ -285,11 +250,9 @@ contract ShardsPresaleTest is Test {
         assertEq(presale.previewTokensOut(holder, 1 ether), 0);
     }
 
-    function test_currentPrice_switchesAtRound1End() public {
-        vm.warp(saleStart);
-        assertEq(presale.currentPrice(), ROUND1_PRICE);
-        vm.warp(round1End);
-        assertEq(presale.currentPrice(), ROUND2_PRICE);
+    function test_priceFor_reflectsHoldings() public {
+        assertEq(presale.priceFor(holder), HOLDER_PRICE);
+        assertEq(presale.priceFor(nonHolder), PUBLIC_PRICE);
     }
 
     function test_remainingWalletCap_decreasesAsContributed() public {
