@@ -6,16 +6,8 @@ import "../contracts/ShardsPresale.sol";
 
 /**
  * @title DeployShardsPresaleScript
- * @notice Deploys ShardsPresale on ApeChain. Every parameter is set once here and is immutable on
- *         the deployed contract — double-check them before broadcasting, nothing here is
- *         adjustable after deploy except pausing the sale (see pause()/withdraw() on the contract).
- *
- * Defaults below match the current plan: Round 1 (Hoodlums holders only) at 0.0017 APE/token for
- * the first 48h, then Round 2 (public) at 0.002 APE/token forever after — no total raise cap (target
- * is 100,000+ APE, not a hard ceiling) and no fixed end date; the team ends the sale manually by
- * calling pause() once satisfied, which is also what unlocks withdraw() for the real airdrop.
- * perWalletCap (2,000,000 $SHARDS, same both rounds) is the only remaining limit. Override any of
- * these via env vars without touching this file.
+ * @notice Deploys ShardsPresale on ApeChain. Constructor params are immutable once deployed;
+ *         override any default via env var.
  *
  * Usage:
  *   HOODLUMS_NFT=0x982bd1F5A87E3F205410df06e15A582df8E1aF6c \

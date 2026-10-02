@@ -110,7 +110,6 @@ contract ShardsPresaleTest is Test {
     }
 
     function test_round2_hasNoEnd_stillAcceptsContributionsFarInTheFuture() public {
-        // The headline change: there is no saleEnd anymore. Round 2 just keeps running.
         vm.warp(round1End + 365 days);
         vm.prank(nonHolder);
         presale.contribute{value: 1 ether}();
@@ -176,8 +175,6 @@ contract ShardsPresaleTest is Test {
     }
 
     function test_contribute_noTotalRaiseCap_acceptsArbitrarilyLargeDemand() public {
-        // Headline change: there is no totalCap anymore. Many wallets can each hit their own
-        // perWalletCap with nothing stopping the sale overall.
         vm.warp(round1End);
         address[] memory buyers = new address[](3);
         buyers[0] = address(0xA1);
