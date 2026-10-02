@@ -6,6 +6,12 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
+/// @notice Subset of delegate.xyz's DelegateRegistry v2 used to honor wallet delegation.
+interface IDelegateRegistry {
+    function checkDelegateForAll(address to, address from, bytes32 rights) external view returns (bool);
+    function checkDelegateForContract(address to, address from, address contract_, bytes32 rights) external view returns (bool);
+}
+
 /**
  * @title ShardsPresale
  * @notice Accepts native APE toward the $SHARDS presale and records each wallet's entitlement.
@@ -13,14 +19,20 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
  *         `contributed` ledger once the sale is paused.
  *
  * One sale, priced by holder status: a wallet holding >=1 Hoodlum pays holderPricePerToken,
- * everyone else pays publicPricePerToken. No total raise cap. The owner ends the sale by calling
- * pause(), which also unlocks withdraw().
+ * everyone else pays publicPricePerToken. A caller may also pass a `vault` address delegating
+ * Hoodlums rights to them via delegate.xyz (e.g. a Glyph hot wallet acting for a cold vault) to
+ * get the holder price without holding a Hoodlum directly; whole-wallet or whole-collection
+ * delegations are honored, not single-token delegations. No total raise cap. The owner ends the
+ * sale by calling pause(), which also unlocks withdraw().
  */
 contract ShardsPresale is Ownable2Step, Pausable, ReentrancyGuard {
+    /// @notice delegate.xyz DelegateRegistry v2 — identical address on every EVM chain it's deployed to.
+    IDelegateRegistry public constant DELEGATE_REGISTRY = IDelegateRegistry(0x00000000000000447e69651d841bD8D104Bed493);
+
     /// @notice NFT collection determining which price a wallet pays.
     IERC721 public immutable hoodlums;
 
-    /// @notice Wei of APE per 1e18 $SHARDS for a wallet holding >=1 Hoodlum.
+    /// @notice Wei of APE per 1e18 $SHARDS for a wallet holding >=1 Hoodlum (directly or via delegation).
     uint256 public immutable holderPricePerToken;
 
     /// @notice Wei of APE per 1e18 $SHARDS for a wallet holding no Hoodlums.
@@ -69,19 +81,32 @@ contract ShardsPresale is Ownable2Step, Pausable, ReentrancyGuard {
         saleStart = saleStart_;
     }
 
-    function _priceFor(address wallet) private view returns (uint256) {
-        return hoodlums.balanceOf(wallet) > 0 ? holderPricePerToken : publicPricePerToken;
+    /// @dev `vault` is self-declared by the caller, not looked up on-chain — it is only ever
+    ///      trusted after the registry itself confirms that vault delegated to `wallet`, and even
+    ///      then only counts if that vault currently holds a Hoodlum. A wallet with no real
+    ///      delegation gains nothing by passing an arbitrary address here.
+    function _isHolder(address wallet, address vault) private view returns (bool) {
+        if (hoodlums.balanceOf(wallet) > 0) return true;
+        if (vault == address(0) || hoodlums.balanceOf(vault) == 0) return false;
+        return DELEGATE_REGISTRY.checkDelegateForAll(wallet, vault, "")
+            || DELEGATE_REGISTRY.checkDelegateForContract(wallet, vault, address(hoodlums), "");
     }
 
-    /// @notice Buy into the presale. Refunds any APE beyond the wallet's remaining cap.
-    function contribute() external payable nonReentrant whenNotPaused {
+    function _priceFor(address wallet, address vault) private view returns (uint256) {
+        return _isHolder(wallet, vault) ? holderPricePerToken : publicPricePerToken;
+    }
+
+    /// @notice Buy into the presale. Pass `vault` (or address(0) if none) to claim the holder price
+    ///         via a delegate.xyz delegation instead of holding a Hoodlum directly. Refunds any APE
+    ///         sent beyond the wallet's remaining cap.
+    function contribute(address vault) external payable nonReentrant whenNotPaused {
         if (block.timestamp < saleStart) revert SaleNotOpen();
         if (msg.value == 0) revert ZeroContribution();
 
         uint256 remainingWallet = perWalletCap - contributed[msg.sender];
         if (remainingWallet == 0) revert WalletCapReached();
 
-        bool isHolder = hoodlums.balanceOf(msg.sender) > 0;
+        bool isHolder = _isHolder(msg.sender, vault);
         uint256 price = isHolder ? holderPricePerToken : publicPricePerToken;
         uint256 requestedTokens = (msg.value * 1e18) / price;
         uint256 grantedTokens = requestedTokens > remainingWallet ? remainingWallet : requestedTokens;
@@ -122,8 +147,8 @@ contract ShardsPresale is Ownable2Step, Pausable, ReentrancyGuard {
 
     // ---- views ----
 
-    function priceFor(address wallet) external view returns (uint256) {
-        return _priceFor(wallet);
+    function priceFor(address wallet, address vault) external view returns (uint256) {
+        return _priceFor(wallet, vault);
     }
 
     function remainingWalletCap(address wallet) external view returns (uint256) {
@@ -132,11 +157,11 @@ contract ShardsPresale is Ownable2Step, Pausable, ReentrancyGuard {
     }
 
     /// @notice $SHARDS `apeAmount` would grant `wallet` right now, after the wallet cap.
-    function previewTokensOut(address wallet, uint256 apeAmount) external view returns (uint256) {
+    function previewTokensOut(address wallet, address vault, uint256 apeAmount) external view returns (uint256) {
         if (paused() || block.timestamp < saleStart) return 0;
         uint256 c = contributed[wallet];
         uint256 remainingWallet = c >= perWalletCap ? 0 : perWalletCap - c;
-        uint256 tokens = (apeAmount * 1e18) / _priceFor(wallet);
+        uint256 tokens = (apeAmount * 1e18) / _priceFor(wallet, vault);
         if (tokens > remainingWallet) tokens = remainingWallet;
         return tokens;
     }

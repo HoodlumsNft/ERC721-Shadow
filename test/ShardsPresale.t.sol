@@ -15,14 +15,40 @@ contract MockHoodlums is ERC721 {
     }
 }
 
+/// @notice Mock for delegate.xyz's DelegateRegistry, etched at its canonical mainnet address in tests.
+contract MockDelegateRegistry {
+    mapping(bytes32 => bool) public allDelegations;
+    mapping(bytes32 => bool) public contractDelegations;
+
+    function setAllDelegation(address to, address from, bool allowed) external {
+        allDelegations[keccak256(abi.encode(to, from))] = allowed;
+    }
+
+    function setContractDelegation(address to, address from, address contract_, bool allowed) external {
+        contractDelegations[keccak256(abi.encode(to, from, contract_))] = allowed;
+    }
+
+    function checkDelegateForAll(address to, address from, bytes32) external view returns (bool) {
+        return allDelegations[keccak256(abi.encode(to, from))];
+    }
+
+    function checkDelegateForContract(address to, address from, address contract_, bytes32) external view returns (bool) {
+        return contractDelegations[keccak256(abi.encode(to, from, contract_))];
+    }
+}
+
 contract ShardsPresaleTest is Test {
+    address constant DELEGATE_REGISTRY_ADDR = 0x00000000000000447e69651d841bD8D104Bed493;
+
     ShardsPresale presale;
     MockHoodlums hoodlums;
+    MockDelegateRegistry registry;
 
     address owner = address(0x0123456789012345678901234567890123456789);
     address holder = address(0xBEEF);
     address holder2 = address(0xBEE2);
     address nonHolder = address(0xDEAD);
+    address vault = address(0x7A017);
     address treasury = address(0x7EA5);
 
     uint256 constant HOLDER_PRICE = 0.0017 ether; // wei of APE per 1e18 SHARDS
@@ -37,6 +63,10 @@ contract ShardsPresaleTest is Test {
         hoodlums = new MockHoodlums();
         hoodlums.mint(holder);
         hoodlums.mint(holder2);
+
+        MockDelegateRegistry mockImpl = new MockDelegateRegistry();
+        vm.etch(DELEGATE_REGISTRY_ADDR, address(mockImpl).code);
+        registry = MockDelegateRegistry(DELEGATE_REGISTRY_ADDR);
 
         saleStart = block.timestamp + 1 days;
 
@@ -75,13 +105,13 @@ contract ShardsPresaleTest is Test {
     function test_contribute_revertsBeforeSaleStart() public {
         vm.prank(holder);
         vm.expectRevert(ShardsPresale.SaleNotOpen.selector);
-        presale.contribute{value: 1 ether}();
+        presale.contribute{value: 1 ether}(address(0));
     }
 
     function test_nonHolder_canBuyFromSaleStart_atPublicPrice() public {
         vm.warp(saleStart);
         vm.prank(nonHolder);
-        presale.contribute{value: 1 ether}();
+        presale.contribute{value: 1 ether}(address(0));
         assertGt(presale.contributed(nonHolder), 0);
     }
 
@@ -91,7 +121,7 @@ contract ShardsPresaleTest is Test {
         vm.warp(saleStart);
         uint256 apeIn = 1.7 ether; // divides evenly at HOLDER_PRICE=0.0017 ether -> exactly 1,000 tokens
         vm.prank(holder);
-        presale.contribute{value: apeIn}();
+        presale.contribute{value: apeIn}(address(0));
         assertEq(presale.contributed(holder), 1_000 ether);
         assertEq(presale.totalSold(), 1_000 ether);
         assertEq(presale.totalRaised(), apeIn);
@@ -101,7 +131,7 @@ contract ShardsPresaleTest is Test {
         vm.warp(saleStart);
         uint256 apeIn = 2 ether; // divides evenly at PUBLIC_PRICE=0.002 ether -> exactly 1,000 tokens
         vm.prank(nonHolder);
-        presale.contribute{value: apeIn}();
+        presale.contribute{value: apeIn}(address(0));
         assertEq(presale.contributed(nonHolder), 1_000 ether);
         assertEq(presale.totalRaised(), apeIn);
     }
@@ -113,7 +143,7 @@ contract ShardsPresaleTest is Test {
         uint256 balBefore = holder.balance;
 
         vm.prank(holder);
-        presale.contribute{value: sent}();
+        presale.contribute{value: sent}(address(0));
 
         assertEq(presale.contributed(holder), WALLET_CAP);
         assertEq(holder.balance, balBefore - costForCap);
@@ -123,12 +153,12 @@ contract ShardsPresaleTest is Test {
         vm.warp(saleStart);
         uint256 half = (WALLET_CAP / 2 * HOLDER_PRICE) / 1e18;
         vm.startPrank(holder);
-        presale.contribute{value: half}();
-        presale.contribute{value: half}();
+        presale.contribute{value: half}(address(0));
+        presale.contribute{value: half}(address(0));
         assertApproxEqAbs(presale.contributed(holder), WALLET_CAP, 1e12); // rounding dust only
 
         vm.expectRevert(ShardsPresale.WalletCapReached.selector);
-        presale.contribute{value: 1 ether}();
+        presale.contribute{value: 1 ether}(address(0));
         vm.stopPrank();
     }
 
@@ -142,7 +172,7 @@ contract ShardsPresaleTest is Test {
         for (uint256 i = 0; i < buyers.length; i++) {
             vm.deal(buyers[i], costForCap);
             vm.prank(buyers[i]);
-            presale.contribute{value: costForCap}();
+            presale.contribute{value: costForCap}(address(0));
             assertEq(presale.contributed(buyers[i]), WALLET_CAP);
         }
         assertEq(presale.totalSold(), WALLET_CAP * 3);
@@ -152,7 +182,7 @@ contract ShardsPresaleTest is Test {
         vm.warp(saleStart);
         vm.prank(holder);
         vm.expectRevert(ShardsPresale.ZeroContribution.selector);
-        presale.contribute{value: 0}();
+        presale.contribute{value: 0}(address(0));
     }
 
     function test_contribute_emitsWithHolderFlagAndPrice() public {
@@ -160,25 +190,68 @@ contract ShardsPresaleTest is Test {
         vm.expectEmit(true, false, false, true, address(presale));
         emit Contributed(holder, 1.7 ether, 1_000 ether, 0, true);
         vm.prank(holder);
-        presale.contribute{value: 1.7 ether}();
+        presale.contribute{value: 1.7 ether}(address(0));
 
         vm.expectEmit(true, false, false, true, address(presale));
         emit Contributed(nonHolder, 2 ether, 1_000 ether, 0, false);
         vm.prank(nonHolder);
-        presale.contribute{value: 2 ether}();
+        presale.contribute{value: 2 ether}(address(0));
     }
 
     function test_contribute_priceFollowsCurrentHoldingsNotASnapshot() public {
         // A wallet that acquires a Hoodlum between contributions immediately gets the holder price.
         vm.warp(saleStart);
         vm.prank(nonHolder);
-        presale.contribute{value: 2 ether}(); // public price -> 1,000 tokens
+        presale.contribute{value: 2 ether}(address(0)); // public price -> 1,000 tokens
 
         hoodlums.mint(nonHolder);
         vm.prank(nonHolder);
-        presale.contribute{value: 1.7 ether}(); // now a holder -> holder price -> another 1,000 tokens
+        presale.contribute{value: 1.7 ether}(address(0)); // now a holder -> holder price -> another 1,000 tokens
 
         assertEq(presale.contributed(nonHolder), 2_000 ether);
+    }
+
+    // ---- delegation ----
+
+    function test_delegation_allScope_getsHolderPrice() public {
+        hoodlums.mint(vault);
+        registry.setAllDelegation(nonHolder, vault, true);
+
+        vm.warp(saleStart);
+        vm.prank(nonHolder);
+        presale.contribute{value: 1.7 ether}(vault);
+        assertEq(presale.contributed(nonHolder), 1_000 ether); // holder price applied
+    }
+
+    function test_delegation_contractScope_getsHolderPrice() public {
+        hoodlums.mint(vault);
+        registry.setContractDelegation(nonHolder, vault, address(hoodlums), true);
+
+        vm.warp(saleStart);
+        vm.prank(nonHolder);
+        presale.contribute{value: 1.7 ether}(vault);
+        assertEq(presale.contributed(nonHolder), 1_000 ether);
+    }
+
+    function test_delegation_ignoredIfVaultHoldsNoHoodlum() public {
+        // registry says delegated, but the vault itself doesn't actually hold a Hoodlum
+        registry.setAllDelegation(nonHolder, vault, true);
+
+        vm.warp(saleStart);
+        vm.prank(nonHolder);
+        presale.contribute{value: 2 ether}(vault);
+        assertEq(presale.contributed(nonHolder), 1_000 ether); // public price (2 ether / 0.002)
+    }
+
+    function test_delegation_ignoredIfNoRealDelegationRecord() public {
+        // vault genuinely holds a Hoodlum, but never delegated to nonHolder -- passing its address
+        // as `vault` must not be enough on its own to claim the holder price.
+        hoodlums.mint(vault);
+
+        vm.warp(saleStart);
+        vm.prank(nonHolder);
+        presale.contribute{value: 2 ether}(vault);
+        assertEq(presale.contributed(nonHolder), 1_000 ether); // still public price
     }
 
     // ---- withdraw ----
@@ -186,7 +259,7 @@ contract ShardsPresaleTest is Test {
     function test_withdraw_revertsWhileSaleStillActive() public {
         vm.warp(saleStart);
         vm.prank(holder);
-        presale.contribute{value: 1 ether}();
+        presale.contribute{value: 1 ether}(address(0));
 
         vm.prank(owner);
         vm.expectRevert(ShardsPresale.SaleStillActive.selector);
@@ -196,7 +269,7 @@ contract ShardsPresaleTest is Test {
     function test_withdraw_unlocksOncePaused() public {
         vm.warp(saleStart);
         vm.prank(holder);
-        presale.contribute{value: 10 ether}();
+        presale.contribute{value: 10 ether}(address(0));
 
         vm.prank(owner);
         presale.pause();
@@ -227,39 +300,39 @@ contract ShardsPresaleTest is Test {
 
         vm.prank(holder);
         vm.expectRevert();
-        presale.contribute{value: 1 ether}();
+        presale.contribute{value: 1 ether}(address(0));
 
         vm.prank(owner);
         presale.unpause();
         vm.prank(holder);
-        presale.contribute{value: 1 ether}(); // works again
+        presale.contribute{value: 1 ether}(address(0)); // works again
     }
 
     // ---- views ----
 
     function test_previewTokensOut_matchesActualClamping() public {
         vm.warp(saleStart);
-        assertEq(presale.previewTokensOut(holder, 1 ether), (1 ether * 1e18) / HOLDER_PRICE);
-        assertEq(presale.previewTokensOut(nonHolder, 1 ether), (1 ether * 1e18) / PUBLIC_PRICE);
+        assertEq(presale.previewTokensOut(holder, address(0), 1 ether), (1 ether * 1e18) / HOLDER_PRICE);
+        assertEq(presale.previewTokensOut(nonHolder, address(0), 1 ether), (1 ether * 1e18) / PUBLIC_PRICE);
     }
 
     function test_previewTokensOut_isZeroWhilePaused() public {
         vm.warp(saleStart);
         vm.prank(owner);
         presale.pause();
-        assertEq(presale.previewTokensOut(holder, 1 ether), 0);
+        assertEq(presale.previewTokensOut(holder, address(0), 1 ether), 0);
     }
 
-    function test_priceFor_reflectsHoldings() public {
-        assertEq(presale.priceFor(holder), HOLDER_PRICE);
-        assertEq(presale.priceFor(nonHolder), PUBLIC_PRICE);
+    function test_priceFor_reflectsHoldingsAndDelegation() public view {
+        assertEq(presale.priceFor(holder, address(0)), HOLDER_PRICE);
+        assertEq(presale.priceFor(nonHolder, address(0)), PUBLIC_PRICE);
     }
 
     function test_remainingWalletCap_decreasesAsContributed() public {
         vm.warp(saleStart);
         assertEq(presale.remainingWalletCap(holder), WALLET_CAP);
         vm.prank(holder);
-        presale.contribute{value: 1 ether}();
+        presale.contribute{value: 1 ether}(address(0));
         assertEq(presale.remainingWalletCap(holder), WALLET_CAP - presale.contributed(holder));
     }
 }
